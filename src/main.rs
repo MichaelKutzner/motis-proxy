@@ -6,9 +6,10 @@ use hyper::{
     server::conn::http1,
 };
 use hyper_util::rt::TokioIo;
-use std::{convert::Infallible, net::SocketAddr};
+use std::{collections::HashMap, convert::Infallible, net::SocketAddr};
 use tokio::net::{TcpListener, TcpStream};
 use tower::ServiceBuilder;
+use url::Url;
 
 mod config;
 mod logger;
@@ -75,8 +76,19 @@ fn build_request(
     Ok(req)
 }
 
+fn parse_query(query: Option<&str>) -> Option<HashMap<String, String>> {
+    query.and_then(|query| {
+        let url = format!("http://localhost/?{}", query);
+        Url::parse(url.as_str())
+            .and_then(|parsed| Ok(parsed.query_pairs().into_owned().collect()))
+            .ok()
+    })
+}
+
 async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible> {
     let config = config::Config::load();
+    let query_parameters = parse_query(req.uri().query());
+    println!("Query Parameters: {:?}", query_parameters);
     forward_request(req, config.backend_address, config.subpath.as_str()).await
 }
 
