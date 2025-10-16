@@ -9,17 +9,13 @@ use std::{convert::Infallible, net::SocketAddr};
 use tokio::net::{TcpListener, TcpStream};
 use tower::ServiceBuilder;
 
+mod config;
 mod logger;
 
 async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible> {
-    const BACKEND: &str = "http://127.0.0.1:8080";
-    let backend_url = BACKEND.parse::<hyper::Uri>().expect("URI parsing failed");
-    let host = backend_url.host().expect("BACKEND has no host");
-    let port = backend_url.port_u16().unwrap_or(80);
-    let address = format!("{}:{}", host, port);
-    let authority = backend_url.authority().unwrap().clone();
+    let config = config::Config::load();
 
-    let stream = TcpStream::connect(address)
+    let stream = TcpStream::connect(config.backend_address.clone())
         .await
         .expect("Failed to connect to server");
     let io = TokioIo::new(stream);
@@ -33,21 +29,21 @@ async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible>
     });
 
     let q = req.uri().path();
-    const PREFIX: &str = "/motis";
-    let next = q.strip_prefix(PREFIX).unwrap_or_else(|| {
-        println!("WARNING Incorrect path: '{}'", q);
+    let next = q.strip_prefix(config.subpath.as_str()).unwrap_or_else(|| {
+        println!(
+            "WARNING Path does not match subpath '{}': '{}'",
+            config.subpath, q
+        );
         q
     });
     let url = format!(
-        "http://{}:{}{}?{}",
-        host,
-        port,
+        "http://{}{}?{}",
+        config.backend_address,
         next,
         req.uri().query().unwrap_or("")
     );
     let proxy_req = Request::builder()
         .uri(url)
-        .header(hyper::header::HOST, authority.as_str())
         .body(Empty::<Bytes>::new())
         .expect("Failed to build proxy request");
 
@@ -60,7 +56,9 @@ async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible>
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let addr = SocketAddr::from(([0, 0, 0, 0], 5173));
+    let config = config::Config::load();
+    println!("Used config: {:?}", config);
+    let addr = SocketAddr::from(config.bind_addr);
     let listener = TcpListener::bind(addr).await?;
     loop {
         let (stream, _) = listener.accept().await?;
