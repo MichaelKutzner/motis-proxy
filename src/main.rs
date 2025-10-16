@@ -1,7 +1,8 @@
 use http_body_util::Empty;
 use hyper::{
-    Request, Response,
+    Request, Response, Uri,
     body::{Bytes, Incoming},
+    client::conn::http1::SendRequest,
     server::conn::http1,
 };
 use hyper_util::rt::TokioIo;
@@ -12,14 +13,31 @@ use tower::ServiceBuilder;
 mod config;
 mod logger;
 
-async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible> {
-    let config = config::Config::load();
-
-    let stream = TcpStream::connect(config.backend_address.clone())
+async fn forward_request(
+    req: Request<Incoming>,
+    backend_server: String,
+    prefix: &str,
+) -> Result<Response<Incoming>, Infallible> {
+    let backend = connect_to_backend(backend_server.clone());
+    let backend_request = build_request(backend_server, req.uri(), prefix)
+        .expect("Building the backend request failed");
+    let res = backend
         .await
-        .expect("Failed to connect to server");
+        .expect("Connection to backend server failed")
+        .send_request(backend_request)
+        .await
+        .expect("Request failed");
+    Ok(res)
+}
+
+async fn connect_to_backend(
+    backend_server: String,
+) -> Result<SendRequest<Empty<Bytes>>, Infallible> {
+    let stream = TcpStream::connect(backend_server)
+        .await
+        .expect("Failed to connect to the backend server");
     let io = TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
+    let (sender, conn) = hyper::client::conn::http1::handshake(io)
         .await
         .expect("Handshake failed");
     tokio::task::spawn(async move {
@@ -28,30 +46,38 @@ async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible>
         }
     });
 
-    let q = req.uri().path();
-    let next = q.strip_prefix(config.subpath.as_str()).unwrap_or_else(|| {
+    Ok(sender)
+}
+
+fn build_request(
+    backend_server: String,
+    uri: &Uri,
+    prefix: &str,
+) -> Result<Request<Empty<Bytes>>, Infallible> {
+    let path = uri.path();
+    let next = path.strip_prefix(prefix).unwrap_or_else(|| {
         println!(
             "WARNING Path does not match subpath '{}': '{}'",
-            config.subpath, q
+            prefix, path
         );
-        q
+        path
     });
     let url = format!(
         "http://{}{}?{}",
-        config.backend_address,
+        backend_server,
         next,
-        req.uri().query().unwrap_or("")
+        uri.query().unwrap_or("")
     );
-    let proxy_req = Request::builder()
+    let req = Request::builder()
         .uri(url)
         .body(Empty::<Bytes>::new())
         .expect("Failed to build proxy request");
+    Ok(req)
+}
 
-    let res = sender
-        .send_request(proxy_req)
-        .await
-        .expect("Request failed");
-    Ok(res)
+async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible> {
+    let config = config::Config::load();
+    forward_request(req, config.backend_address, config.subpath.as_str()).await
 }
 
 #[tokio::main]
