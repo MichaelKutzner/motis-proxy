@@ -1,4 +1,4 @@
-use http_body_util::{Empty, Full};
+use http_body_util::Empty;
 use hyper::{
     Request, Response,
     body::{Bytes, Incoming},
@@ -11,12 +11,6 @@ use tower::ServiceBuilder;
 
 mod logger;
 
-#[allow(dead_code)]
-async fn hello(_: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-    Ok(Response::new(Full::new(Bytes::from("Hello, World!"))))
-}
-
-// async fn proxy(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
 async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible> {
     const BACKEND: &str = "http://127.0.0.1:8080";
     let backend_url = BACKEND.parse::<hyper::Uri>().expect("URI parsing failed");
@@ -39,8 +33,11 @@ async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible>
     });
 
     let q = req.uri().path();
-    println!("Path: {}", q);
-    let next = q.strip_prefix("/motis").unwrap_or(q);
+    const PREFIX: &str = "/motis";
+    let next = q.strip_prefix(PREFIX).unwrap_or_else(|| {
+        println!("WARNING Incorrect path: '{}'", q);
+        q
+    });
     let url = format!(
         "http://{}:{}{}?{}",
         host,
@@ -48,37 +45,30 @@ async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible>
         next,
         req.uri().query().unwrap_or("")
     );
-    println!("Proxy to: {}", url);
     let proxy_req = Request::builder()
         .uri(url)
         .header(hyper::header::HOST, authority.as_str())
         .body(Empty::<Bytes>::new())
         .expect("Failed to build proxy request");
-    println!("Next request: '{}'", proxy_req.uri());
 
     let res = sender
         .send_request(proxy_req)
         .await
         .expect("Request failed");
-    println!("Got response");
     Ok(res)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    logger::test();
-    println!("Hello, world!");
-
     let addr = SocketAddr::from(([0, 0, 0, 0], 5173));
     let listener = TcpListener::bind(addr).await?;
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
         tokio::spawn(async move {
-            // let svc = hyper::service::service_fn(hello);
             let svc = hyper::service::service_fn(proxy);
             let svc = ServiceBuilder::new()
-                .layer_fn(logger::Logger::new)
+                // .layer_fn(logger::Logger::new)
                 .service(svc);
             if let Err(err) = http1::Builder::new().serve_connection(io, svc).await {
                 eprintln!("server error: {}", err);

@@ -1,10 +1,12 @@
 use hyper::{Request, body::Incoming, service::Service};
 
 #[derive(Debug, Clone)]
+#[allow(unused)]
 pub struct Logger<S> {
     inner: S,
 }
 impl<S> Logger<S> {
+    #[allow(unused)]
     pub fn new(inner: S) -> Self {
         Logger { inner }
     }
@@ -23,8 +25,4 @@ where
         println!("processing request: {} {}", req.method(), req.uri().path());
         self.inner.call(req)
     }
-}
-
-pub fn test() {
-    println!("Test");
 }
