@@ -12,16 +12,15 @@ use tower::ServiceBuilder;
 use url::Url;
 
 mod config;
-mod logger;
+mod path_rewriter;
 
 async fn forward_request(
     req: Request<Incoming>,
     backend_server: String,
-    prefix: &str,
 ) -> Result<Response<Incoming>, Infallible> {
     let backend = connect_to_backend(backend_server.clone());
-    let backend_request = build_request(backend_server, req.uri(), prefix)
-        .expect("Building the backend request failed");
+    let backend_request =
+        build_request(backend_server, req.uri()).expect("Building the backend request failed");
     let res = backend
         .await
         .expect("Connection to backend server failed")
@@ -50,19 +49,8 @@ async fn connect_to_backend(
     Ok(sender)
 }
 
-fn build_request(
-    backend_server: String,
-    uri: &Uri,
-    prefix: &str,
-) -> Result<Request<Empty<Bytes>>, Infallible> {
-    let path = uri.path();
-    let next = path.strip_prefix(prefix).unwrap_or_else(|| {
-        println!(
-            "WARNING Path does not match subpath '{}': '{}'",
-            prefix, path
-        );
-        path
-    });
+fn build_request(backend_server: String, uri: &Uri) -> Result<Request<Empty<Bytes>>, Infallible> {
+    let next = uri.path();
     let url = format!(
         "http://{}{}?{}",
         backend_server,
@@ -86,10 +74,11 @@ fn parse_query(query: Option<&str>) -> Option<HashMap<String, String>> {
 }
 
 async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible> {
+    // println!("Request: {:?}", req);
     let config = config::Config::load();
     let query_parameters = parse_query(req.uri().query());
-    println!("Query Parameters: {:?}", query_parameters);
-    forward_request(req, config.backend_address, config.subpath.as_str()).await
+    // println!("Query Parameters: {:?}", query_parameters);
+    forward_request(req, config.backend_address).await
 }
 
 #[tokio::main]
@@ -101,10 +90,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
+        let subpath: String = config.clone().subpath.to_owned().to_string();
         tokio::spawn(async move {
             let svc = hyper::service::service_fn(proxy);
             let svc = ServiceBuilder::new()
-                // .layer_fn(logger::Logger::new)
+                .layer_fn(|inner| path_rewriter::PathRewriter::new(inner, subpath.clone()))
                 .service(svc);
             if let Err(err) = http1::Builder::new().serve_connection(io, svc).await {
                 eprintln!("server error: {}", err);
