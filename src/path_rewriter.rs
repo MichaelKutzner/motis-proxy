@@ -1,15 +1,18 @@
 use std::str::FromStr as _;
 
 use hyper::{Request, body::Incoming, service::Service};
+use std::sync::Arc;
+
+use crate::config::Config;
 
 #[derive(Debug, Clone)]
 pub struct PathRewriter<S> {
     inner: S,
-    subpath: String,
+    config: Arc<Config>,
 }
 impl<S> PathRewriter<S> {
-    pub fn new(inner: S, subpath: String) -> Self {
-        PathRewriter { inner, subpath }
+    pub fn new(inner: S, config: Arc<Config>) -> Self {
+        PathRewriter { inner, config }
     }
 }
 
@@ -25,17 +28,15 @@ where
     fn call(&self, mut req: Req) -> Self::Future {
         let request_path = req.uri().path_and_query().expect("Missing path").as_str();
         let backend_path = request_path
-            .strip_prefix(self.subpath.as_str())
+            .strip_prefix(self.config.subpath.as_str())
             .unwrap_or_else(|| {
                 println!(
                     "WARNING Path does not match subpath '{}': '{}'",
-                    self.subpath, request_path
+                    self.config.subpath, request_path
                 );
                 request_path
             });
-        // println!("URI Before: {:?}", req.uri());
         *req.uri_mut() = hyper::Uri::from_str(backend_path).expect("Uri::from_str failed");
-        // println!("URI After: {:?}", req.uri());
         self.inner.call(req)
     }
 }

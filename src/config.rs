@@ -1,4 +1,7 @@
-use std::net::{IpAddr, Ipv4Addr};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    sync::Arc,
+};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -8,7 +11,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load() -> Self {
+    pub fn load() -> Arc<Self> {
         let backend_uri = option_env!("BACKEND_URI").unwrap_or("http://127.0.0.1:8080");
         let backend_uri = backend_uri
             .parse::<hyper::Uri>()
@@ -22,11 +25,11 @@ impl Config {
         let port = option_env!("BIND_PORT")
             .and_then(parse_port)
             .unwrap_or(5173);
-        Self {
+        Arc::new(Self {
             backend_address: backend_address,
             bind_addr: (host, port),
             subpath: option_env!("PROXY_SUBPATH").unwrap_or("").to_string(),
-        }
+        })
     }
 }
 

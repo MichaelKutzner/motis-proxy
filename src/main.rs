@@ -6,7 +6,7 @@ use hyper::{
     server::conn::http1,
 };
 use hyper_util::rt::TokioIo;
-use std::{collections::HashMap, convert::Infallible, net::SocketAddr};
+use std::{collections::HashMap, convert::Infallible, net::SocketAddr, sync::Arc};
 use tokio::net::{TcpListener, TcpStream};
 use tower::ServiceBuilder;
 use url::Url;
@@ -16,23 +16,17 @@ mod path_rewriter;
 
 async fn forward_request(
     req: Request<Incoming>,
-    backend_server: String,
+    backend_server: &String,
 ) -> Result<Response<Incoming>, Infallible> {
-    let backend = connect_to_backend(backend_server.clone());
-    let backend_request =
-        build_request(backend_server, req.uri()).expect("Building the backend request failed");
-    let res = backend
+    Ok(connect_to_backend(backend_server)
         .await
         .expect("Connection to backend server failed")
-        .send_request(backend_request)
+        .send_request(req)
         .await
-        .expect("Request failed");
-    Ok(res)
+        .expect("Request failed"))
 }
 
-async fn connect_to_backend(
-    backend_server: String,
-) -> Result<SendRequest<Empty<Bytes>>, Infallible> {
+async fn connect_to_backend(backend_server: &String) -> Result<SendRequest<Incoming>, Infallible> {
     let stream = TcpStream::connect(backend_server)
         .await
         .expect("Failed to connect to the backend server");
@@ -49,21 +43,6 @@ async fn connect_to_backend(
     Ok(sender)
 }
 
-fn build_request(backend_server: String, uri: &Uri) -> Result<Request<Empty<Bytes>>, Infallible> {
-    let next = uri.path();
-    let url = format!(
-        "http://{}{}?{}",
-        backend_server,
-        next,
-        uri.query().unwrap_or("")
-    );
-    let req = Request::builder()
-        .uri(url)
-        .body(Empty::<Bytes>::new())
-        .expect("Failed to build proxy request");
-    Ok(req)
-}
-
 fn parse_query(query: Option<&str>) -> Option<HashMap<String, String>> {
     query.and_then(|query| {
         let url = format!("http://localhost/?{}", query);
@@ -73,12 +52,14 @@ fn parse_query(query: Option<&str>) -> Option<HashMap<String, String>> {
     })
 }
 
-async fn proxy(req: Request<Incoming>) -> Result<Response<Incoming>, Infallible> {
+async fn proxy(
+    req: Request<Incoming>,
+    config: Arc<config::Config>,
+) -> Result<Response<Incoming>, Infallible> {
     // println!("Request: {:?}", req);
-    let config = config::Config::load();
     let query_parameters = parse_query(req.uri().query());
     // println!("Query Parameters: {:?}", query_parameters);
-    forward_request(req, config.backend_address).await
+    forward_request(req, &config.backend_address).await
 }
 
 #[tokio::main]
@@ -90,11 +71,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
-        let subpath: String = config.clone().subpath.to_owned().to_string();
+        let service_config = config.clone();
         tokio::spawn(async move {
-            let svc = hyper::service::service_fn(proxy);
+            let svc = hyper::service::service_fn(|req| proxy(req, service_config.clone()));
             let svc = ServiceBuilder::new()
-                .layer_fn(|inner| path_rewriter::PathRewriter::new(inner, subpath.clone()))
+                .layer_fn(|inner| path_rewriter::PathRewriter::new(inner, service_config.clone()))
                 .service(svc);
             if let Err(err) = http1::Builder::new().serve_connection(io, svc).await {
                 eprintln!("server error: {}", err);
