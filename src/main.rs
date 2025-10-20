@@ -1,9 +1,5 @@
-use http_body_util::Empty;
 use hyper::{
-    Request, Response, Uri,
-    body::{Bytes, Incoming},
-    client::conn::http1::SendRequest,
-    server::conn::http1,
+    Request, Response, body::Incoming, client::conn::http1::SendRequest, server::conn::http1,
 };
 use hyper_util::rt::TokioIo;
 use std::{collections::HashMap, convert::Infallible, net::SocketAddr, sync::Arc};

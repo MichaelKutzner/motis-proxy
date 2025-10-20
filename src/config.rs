@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Config {
     pub backend_address: String,
     pub bind_addr: (IpAddr, u16),
@@ -25,10 +25,11 @@ impl Config {
         let port = option_env!("BIND_PORT")
             .and_then(parse_port)
             .unwrap_or(5173);
+        let subpath = option_env!("PROXY_SUBPATH").unwrap_or("").to_string();
         Arc::new(Self {
-            backend_address: backend_address,
+            backend_address,
             bind_addr: (host, port),
-            subpath: option_env!("PROXY_SUBPATH").unwrap_or("").to_string(),
+            subpath,
         })
     }
 }

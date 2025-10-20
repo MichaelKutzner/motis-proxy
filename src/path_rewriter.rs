@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::config::Config;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PathRewriter<S> {
     inner: S,
     config: Arc<Config>,
