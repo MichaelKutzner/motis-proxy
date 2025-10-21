@@ -5,7 +5,7 @@ use std::{
 
 #[derive(Debug)]
 pub struct Config {
-    pub backend_address: String,
+    pub default_backend_address: String,
     pub bind_addr: (IpAddr, u16),
     pub subpath: String,
 }
@@ -18,7 +18,7 @@ impl Config {
             .expect("Failed to parse BACKEND_URI");
         let host = backend_uri.host().expect("Missing backend host");
         let port = backend_uri.port_u16().unwrap_or(80);
-        let backend_address = format!("{}:{}", host, port);
+        let default_backend_address = format!("{}:{}", host, port);
         let host = option_env!("BIND_ADDR")
             .and_then(parse_ip)
             .unwrap_or(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
@@ -27,7 +27,7 @@ impl Config {
             .unwrap_or(5173);
         let subpath = option_env!("PROXY_SUBPATH").unwrap_or("").to_string();
         Arc::new(Self {
-            backend_address,
+            default_backend_address,
             bind_addr: (host, port),
             subpath,
         })

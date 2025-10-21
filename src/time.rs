@@ -6,7 +6,14 @@ use url::Url;
 
 pub fn get_current_day_offset(req: &Request<Incoming>) -> Option<i32> {
     match parse_query(req.uri().query()) {
-        Some(parameters) => parse_time_parameter(parameters),
+        Some(parameters) => {
+            if parameters.contains_key("pageCursor") {
+                // No restrictions for paged queries
+                None
+            } else {
+                parse_time_parameter(parameters)
+            }
+        }
         // No parameters: Assume now
         None => Some(0i32),
     }
@@ -33,7 +40,7 @@ fn parse_day_offset(time: &String) -> Option<i32> {
     match parse_day(time) {
         Some(day) => {
             let today = Utc::now().num_days_from_ce();
-            println!("Offset day: {}", day - today);
+            // println!("Offset day: {}", day - today);
             Some(day - today)
         }
         // Parsing failed: Cannot compute days_from_now

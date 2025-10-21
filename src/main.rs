@@ -44,8 +44,8 @@ async fn proxy(
     config: Arc<config::Config>,
 ) -> Result<Response<Incoming>, Infallible> {
     let current_day_offset = time::get_current_day_offset(&req);
-    println!("Request starts in {:?} days", current_day_offset);
-    forward_request(req, &config.backend_address).await
+    // println!("Request starts in {:?} days", current_day_offset);
+    forward_request(req, &config.default_backend_address).await
 }
 
 #[tokio::main]
