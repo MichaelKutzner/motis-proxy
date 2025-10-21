@@ -14,6 +14,7 @@ async fn forward_request(
     req: Request<Incoming>,
     backend_server: &String,
 ) -> Result<Response<Incoming>, Infallible> {
+    // println!("Sending request to '{}'", backend_server);
     Ok(connect_to_backend(backend_server)
         .await
         .expect("Connection to backend server failed")
@@ -43,8 +44,14 @@ async fn proxy(
     req: Request<Incoming>,
     config: Arc<config::Config>,
 ) -> Result<Response<Incoming>, Infallible> {
-    let current_day_offset = time::get_current_day_offset(&req);
     // println!("Request starts in {:?} days", current_day_offset);
+    if let Some(current_day_offset) = time::get_current_day_offset(&req) {
+        for backend in &config.backends {
+            if backend.covers(current_day_offset) {
+                return forward_request(req, &backend.backend_address).await;
+            }
+        }
+    }
     forward_request(req, &config.default_backend_address).await
 }
 
