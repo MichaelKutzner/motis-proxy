@@ -1,3 +1,4 @@
+use chrono::{DateTime, Datelike, Utc};
 use hyper::{
     Request, Response, body::Incoming, client::conn::http1::SendRequest, server::conn::http1,
 };
@@ -39,6 +40,41 @@ async fn connect_to_backend(backend_server: &String) -> Result<SendRequest<Incom
     Ok(sender)
 }
 
+fn get_days_from_now(req: &Request<Incoming>) -> Option<i32> {
+    match parse_query(req.uri().query()) {
+        Some(parameters) => {
+            match parameters.get("time") {
+                Some(time) => {
+                    // Parse timestamp
+                    let day = DateTime::parse_from_rfc3339(time)
+                        .ok()
+                        .and_then(|ts| Some(ts.to_utc()))
+                        .or_else(|| {
+                            // Fallback: Use unixtime
+                            time.parse::<i64>()
+                                .ok()
+                                .and_then(|unixtime| DateTime::from_timestamp_secs(unixtime))
+                        })
+                        .and_then(|ts| Some(ts.num_days_from_ce()));
+                    match day {
+                        Some(day) => {
+                            let today = Utc::now().num_days_from_ce();
+                            println!("Offset day: {}", day - today);
+                            Some(day - today)
+                        }
+                        // Parsing failed: Cannot compute days_from_now
+                        None => None,
+                    }
+                }
+                // No 'time' parameter: Assume now
+                None => Some(0i32),
+            }
+        }
+        // No parameters: Assume now
+        None => Some(0i32),
+    }
+}
+
 fn parse_query(query: Option<&str>) -> Option<HashMap<String, String>> {
     query.and_then(|query| {
         let url = format!("http://localhost/?{}", query);
@@ -52,9 +88,8 @@ async fn proxy(
     req: Request<Incoming>,
     config: Arc<config::Config>,
 ) -> Result<Response<Incoming>, Infallible> {
-    // println!("Request: {:?}", req);
-    let query_parameters = parse_query(req.uri().query());
-    // println!("Query Parameters: {:?}", query_parameters);
+    let days_from_now = get_days_from_now(&req);
+    println!("Request starts in {:?} days", days_from_now);
     forward_request(req, &config.backend_address).await
 }
 
