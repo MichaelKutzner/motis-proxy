@@ -11,6 +11,7 @@ pub struct Config {
     pub backends: Vec<Backend>,
     pub bind_addr: (IpAddr, u16),
     pub subpath: String,
+    pub max_duration_hours: i32,
 }
 
 impl Config {
@@ -23,6 +24,7 @@ impl Config {
             backends: parse_backends(option_env!("BACKENDS")),
             bind_addr: parse_bind_address(option_env!("BIND_ADDR"), option_env!("BIND_PORT")),
             subpath: parse_prefix(option_env!("PROXY_PREFIX")),
+            max_duration_hours: parse_max_duration_hours(option_env!("MAX_HOURS")),
         })
     }
 }
@@ -65,6 +67,12 @@ fn parse_prefix(prefix: Option<&str>) -> String {
     prefix.unwrap_or("").to_string()
 }
 
+fn parse_max_duration_hours(max_duration_hours: Option<&str>) -> i32 {
+    max_duration_hours
+        .and_then(|max_hours| max_hours.parse::<i32>().ok())
+        .unwrap_or(12)
+}
+
 #[derive(Debug)]
 pub struct Backend {
     days: i32,
@@ -72,8 +80,8 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn covers(&self, current_day_offset: i32) -> bool {
-        current_day_offset + 2 <= self.days
+    pub fn can_route_in_days(&self, days: i32) -> bool {
+        self.days > days
     }
     fn new(days_backend: &str) -> Self {
         let (days, backend) = days_backend

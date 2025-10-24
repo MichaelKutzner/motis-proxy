@@ -44,6 +44,7 @@ To configure the proxy, use these environment variables:
 * `BIND_ADDR`: IPv4 bind. Default: `0.0.0.0`
 * `BIND_PORT`: Bind port. Default: `5173`
 * `PROXY_PREFIX`: Optional prefix, that will be removed before passing to the backend. This can be used when the service is not served on the root path and for debugging.
+* `MAX_HOURS`: Estimated upper bound in hours, when at least one journey has ended. That time point must be contained in the backend. Default: `12`
 
 ### Example
 
@@ -59,8 +60,7 @@ This starts a proxy server with backends for 3 and 9 days and the default backen
 * Currently all static data will be served by the fastest instance, as the requests don't contain a `time` parameter
     * Option a) Spread these requests
     * Option b) Don't serve tiles on all but one instance
-* To cover trips around midnight, the proxy requires backend servers to have at least one day after the requested time
+* To cover trips around midnight, the proxy requires backend servers to have at least `MAX_HOURS` after the requested time
     * For search by arrival, this is not needed
     * An instance with a 8 day schedule can be used for today and the upcoming 6 days. Requests 7 days in advance will be sent to the next larger instance.
-    * Assuming a travel duration of less than `x` hours, that threshold (currently 1 day = 24 hours) should be configurable
 

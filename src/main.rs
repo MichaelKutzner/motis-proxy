@@ -6,9 +6,12 @@ use std::{net::SocketAddr, sync::Arc};
 use tokio::net::{TcpListener, TcpStream};
 use tower::ServiceBuilder;
 
+use crate::current_offset::{get_offset_from_now, get_offset_from_timestamp};
+
 mod config;
+mod current_offset;
+mod parameters;
 mod path_rewriter;
-mod time;
 
 async fn forward_request(
     req: Request<Incoming>,
@@ -38,12 +41,58 @@ async fn proxy(
     req: Request<Incoming>,
     config: Arc<config::Config>,
 ) -> Result<Response<Incoming>, ErrorBox> {
-    // println!("Request starts in {:?} days", current_day_offset);
-    if let Some(current_day_offset) = time::get_current_day_offset(&req) {
-        for backend in &config.backends {
-            if backend.covers(current_day_offset) {
-                return forward_request(req, &backend.backend_address).await;
-            }
+    match parameters::parse_parameters(&req) {
+        parameters::SearchParameters::Timestamp {
+            timestamp,
+            direction,
+        } => send_to_first_backend_from_timestamp(req, config, timestamp, direction).await,
+        parameters::SearchParameters::Now { direction } => {
+            send_to_first_backend_from_now(req, config, direction).await
+        }
+        parameters::SearchParameters::Unrestricted | parameters::SearchParameters::None => {
+            forward_request(req, &config.default_backend_address).await
+        }
+    }
+}
+
+async fn send_to_first_backend_from_timestamp(
+    req: Request<Incoming>,
+    config: Arc<config::Config>,
+    timestamp: parameters::Timestamp,
+    direction: parameters::SearchDirection,
+) -> Result<Response<Incoming>, ErrorBox> {
+    let max_duration_hours = config.max_duration_hours;
+    send_to_first_backend(
+        req,
+        config,
+        get_offset_from_timestamp(timestamp, direction, max_duration_hours),
+    )
+    .await
+}
+
+async fn send_to_first_backend_from_now(
+    req: Request<Incoming>,
+    config: Arc<config::Config>,
+    direction: parameters::SearchDirection,
+) -> Result<Response<Incoming>, ErrorBox> {
+    let max_duration_hours = config.max_duration_hours;
+    send_to_first_backend(
+        req,
+        config,
+        get_offset_from_now(direction, max_duration_hours),
+    )
+    .await
+}
+
+async fn send_to_first_backend(
+    req: Request<Incoming>,
+    config: Arc<config::Config>,
+    current_day_offset: i32,
+) -> Result<Response<Incoming>, ErrorBox> {
+    println!("Forwarding request. Todays offset: {}", current_day_offset);
+    for backend in &config.backends {
+        if backend.can_route_in_days(current_day_offset) {
+            return forward_request(req, &backend.backend_address).await;
         }
     }
     forward_request(req, &config.default_backend_address).await
