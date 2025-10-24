@@ -89,7 +89,11 @@ async fn send_to_first_backend(
     config: Arc<config::Config>,
     current_day_offset: i32,
 ) -> Result<Response<Incoming>, ErrorBox> {
-    println!("Forwarding request. Todays offset: {}", current_day_offset);
+    println!(
+        "Forwarding request to '{}'. Days required on backend: {}",
+        req.uri().path(),
+        current_day_offset + 1
+    );
     for backend in &config.backends {
         if backend.can_route_in_days(current_day_offset) {
             return forward_request(req, &backend.backend_address).await;
